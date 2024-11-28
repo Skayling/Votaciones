@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Votación - Comité Único</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+        }
+        .comite-container {
+            margin: 20px auto;
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: white;
+            max-width: 500px;
+        }
+        .boton-container {
+            margin: 10px;
+        }
+        button {
+            width: 120px;
+            height: 40px;
+            font-size: 16px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .contador {
+            font-size: 16px;
+            margin-top: 5px;
+        }
+        .exportar-btn {
+            margin-top: 20px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        .exportar-btn:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Votación del Comité Único</h1>
+    <div id="comite" class="comite-container">
+        <h2 id="nombre-comite"></h2>
+        <div class="boton-container">
+            <button onclick="votar('A favor')">A favor</button>
+            <button onclick="votar('En contra')">En contra</button>
+            <button onclick="votar('Abstención')">Abstención</button>
+        </div>
+        <div class="contador" id="contador-aFavor">A favor: 0</div>
+        <div class="contador" id="contador-enContra">En contra: 0</div>
+        <div class="contador" id="contador-abstencion">Abstención: 0</div>
+    </div>
+    Resultados
+    <div class="comite-container">
+        <canvas id="graficaVotos" width="400" height="200"></canvas>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let comiteId; // ID del comité, se obtiene al conectarse
+
+        // Función para enviar el voto al servidor
+        function votar(voto) {
+            if (comiteId) {
+                socket.emit('votar', { voto });
+            } else {
+                alert('Error: No se puede votar porque el comité no está cargado.');
+            }
+        }
+
+        // Recibir el estado inicial del comité al conectarse
+        socket.on('estadoComites', (comites) => {
+            const comite = comites[0]; // Solo hay un comité
+            comiteId = comite._id;
+
+            // Renderizar datos del comité
+            document.getElementById('nombre-comite').innerText = comite.nombre;
+            document.getElementById('contador-aFavor').innerText = `A favor: ${comite.votos.aFavor}`;
+            document.getElementById('contador-enContra').innerText = `En contra: ${comite.votos.enContra}`;
+            document.getElementById('contador-abstencion').innerText = `Abstención: ${comite.votos.abstencion}`;
+        });
+
+        // Actualizar los votos en tiempo real
+        socket.on('actualizarVotos', (data) => {
+            if (data.comiteId === comiteId) {
+                document.getElementById('contador-aFavor').innerText = `A favor: ${data.votos.aFavor}`;
+                document.getElementById('contador-enContra').innerText = `En contra: ${data.votos.enContra}`;
+                document.getElementById('contador-abstencion').innerText = `Abstención: ${data.votos.abstencion}`;
+            }
+        });
+
+        // Mostrar mensajes del servidor
+        socket.on('mensaje', (mensaje) => {
+            alert(mensaje);
+        });
+
+        // Atajo de teclado para exportar resultados (Ctrl + E)
+        document.addEventListener('keydown', (event) => {
+            if (event.ctrlKey && event.key === 'e') { // Si se presiona Ctrl + E
+                window.location.href = '/exportar';   // Redirigir al endpoint de exportación
+            }
+        });
+         // Atajo para reiniciar votaciones (Ctrl + R)
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.key === 'a') {
+            if (confirm('¿Estás seguro de que deseas reiniciar las votaciones? Esta acción no se puede deshacer.')) {
+                socket.emit('reiniciarVotaciones');
+            }
+        }
+    });
+
+    let chart; // Variable global para la gráfica
+
+// Inicializar la gráfica
+function inicializarGrafica() {
+    const ctx = document.getElementById('graficaVotos').getContext('2d');
+    chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['A favor', 'En contra', 'Abstención'], // Etiquetas de las categorías
+            datasets: [{
+                label: 'Votos',
+                data: [0, 0, 0], // Valores iniciales
+                backgroundColor: [
+                    'rgba(75, 192, 192, 0.2)', // Color para "A favor"
+                    'rgba(255, 99, 132, 0.2)', // Color para "En contra"
+                    'rgba(255, 205, 86, 0.2)'  // Color para "Abstención"
+                ],
+                borderColor: [
+                    'rgba(75, 192, 192, 1)',
+                    'rgba(255, 99, 132, 1)',
+                    'rgba(255, 205, 86, 1)'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+// Actualizar la gráfica con nuevos datos
+function actualizarGrafica(votos) {
+    if (chart) {
+        chart.data.datasets[0].data = [
+            votos.aFavor,
+            votos.enContra,
+            votos.abstencion
+        ];
+        chart.update(); // Redibujar la gráfica
+    }
+}
+
+// Llamar a la inicialización al cargar la página
+inicializarGrafica();
+
+// Actualizar la gráfica en tiempo real cuando llegan datos
+socket.on('actualizarVotos', (data) => {
+    if (data.comiteId === comiteId) {
+        actualizarGrafica(data.votos);
+    }
+});
+
+    </script>
+
+</body>
+
+</html>
